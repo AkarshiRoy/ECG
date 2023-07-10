@@ -1,0 +1,243 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import math
+from scipy.signal import find_peaks
+
+# extracting mecg
+filepath_mecg = r"C:\Users\AKARSHI\Desktop\ECG\mecg_c0.xlsx"
+data_mecg = pd.read_excel(filepath_mecg)
+list_mecg = []
+for i in range(0,35):
+    temp1 = data_mecg.iloc[1::,i]
+    list_mecg.append(temp1.to_numpy())
+#print(list_mecg[0])
+
+# extracting fecg
+filepath_fecg = r"C:\Users\AKARSHI\Desktop\ECG\fecg_c0.xlsx"
+data_fecg = pd.read_excel(filepath_fecg)
+list_fecg = []
+for i in range(0,35):
+    temp1 = data_fecg.iloc[1::,i]
+    list_fecg.append(temp1.to_numpy())
+#print(list_fecg[0])
+
+
+# extracting elapsed time
+time = list_mecg[0]
+
+# extracting abdominal ecg: column B of mecg
+aecg = list_mecg[1]
+
+# extracting thoracic ecg: column AH of mecg
+tecg = list_mecg[34]
+
+#extracting actual fecg: column B of fecg
+actual_fecg = list_fecg[1]
+
+print(list_mecg[1])
+print(list_fecg[1])
+print(list_mecg[34])
+
+
+def noncausal_lms_filter(x, d, N, mu_init,alpha):
+    """
+    Non-causal LMS adaptive filter using the Least Mean Squares algorithm.
+    
+    Args:
+        input_signal (ndarray): The input signal to be filtered.
+        desired_signal (ndarray): The desired signal (reference) for filtering.
+        filter_length (int): Length of the adaptive filter.
+        step_size (float): Step size parameter for the LMS algorithm.
+    
+    Returns:
+        ndarray: The filtered signal.
+    """
+    #n:input length
+    #N:filter length
+    #x:desired (reference) signal
+    #mu:step size
+    #w:weight
+    #d:input signal
+    n = len(d)
+    filtered_signal = np.zeros(n)
+    w = np.zeros(N)
+    error = np.zeros(n)
+    mu = np.zeros(n)
+    mu[0] = mu_init
+
+    #for i in range(0,N-1):
+     #   mu[i+1] = mu[i] * (alpha + x[i])/(alpha + x[i-1])
+
+    for i in range(N, n):
+        input_vector = x[i-N:i]
+        y = np.dot(w, input_vector)
+        error[i] = d[i] - y
+        mu[i] = mu[i-1] * (alpha + x[i-1])/(alpha + x[i-2])
+        w = w + (mu[i-N] * error[i] * input_vector)
+        filtered_signal[i] = y
+    
+    return filtered_signal, error
+
+d = aecg
+x = tecg
+N = 38
+mu_init = 0.05
+alpha = 4
+
+filtered_signal,error = noncausal_lms_filter(x,d,N,mu_init,alpha)
+
+# Display of signals
+plt.subplot(5, 1, 1)
+plt.plot(time, x)
+plt.title('Thorax ecg')
+
+plt.subplot(5, 1, 2)
+plt.plot(time, d)
+plt.title('Abdominal ecg')
+
+plt.subplot(5, 1, 3)
+plt.plot(time,filtered_signal)
+plt.title('Sum Estimate')
+
+plt.subplot(5, 1, 4)
+plt.plot(time,error)
+plt.title('Error Signal')
+
+plt.subplot(5, 1, 5)
+plt.plot(time,actual_fecg)
+plt.title('Actual fecg')
+
+plt.tight_layout()
+plt.show()
+
+
+T = 1000
+
+# calculating correlation coeff - gamma
+gamma_num=0
+gamma_deno_1=0
+gamma_deno_2=0
+
+for j in range (1,T+1):
+    gamma_num += d[j]*error[j]
+
+for j in range (1,T+1):
+    gamma_deno_1 += abs(d[j])**2
+    gamma_deno_2 += abs(error[j])**2
+
+gamma_deno = (gamma_deno_1*gamma_deno_2)**0.5
+
+gamma = gamma_num/gamma_deno
+print("Gamma: ",gamma)
+
+
+# calculating peak root mean sq diff - prd in %
+prd_num=0
+prd_den=0
+for j in range(1,T+1):
+    prd_num += ((d[j]-error[j])**2)
+
+for j in range(1,T+1):
+    prd_den += ((d[j])**2)
+
+prd = ((prd_num/prd_den)**0.5)*100
+print("PRD: ",prd)
+
+
+# calculating signal to noise ratio - snr in dB
+snr_num=0
+snr_den=0
+
+for j in range(1,T+1):
+    snr_num += (abs(error[j]))**2
+    snr_den += (abs(d[j]-error[j]))**2
+
+ratio = snr_num/snr_den
+logarithm = math.log(ratio,10)
+snr = 10*logarithm
+print("SNR: ",snr)
+
+# calculating root mean square error - rmse
+rmse_num = 0
+rmse_den = T
+
+for j in range(1,T+1):
+    rmse_num += (d[j]-error[j])**2
+
+rmse = (rmse_num/rmse_den)**0.5
+print("RMSE: ",rmse)
+
+
+
+# FINDING PEAKS
+error_data = find_peaks(error,height=0.2)
+actual_data = find_peaks(actual_fecg,height=0.065)
+#print(error_data) #-----> contains both index and y values of error peaks
+#print(actual_data) #-----> contains both index and y values of actual fecg peaks
+#print(error_data[1]) #----> contains only y values of error peaks in '' format
+#print(actual_data[1]) #----> contains only y values of actual fecg peaks in '' format
+#print(error_data[0]) #----> contains only index values of error peaks
+#print(actual_data[0]) #----> contains only index values of actual fecg peaks
+error_peak_heights = error_data[1]
+actual_peak_heights = actual_data[1]
+ep = error_peak_heights['peak_heights']
+ap = actual_peak_heights['peak_heights']
+
+# error_y contains only y values of error peaks
+# actual_y contains only y values of actual fecg peaks
+error_y=[]
+for value in ep:
+    error_y.append(value)
+actual_y=[]
+for value in ap:
+    actual_y.append(value)
+#print(error_y)
+#print(actual_y)
+
+# error_x contains only x values of error peaks
+# actual_x contains only x values of actual fecg peaks
+error_x=[]
+for value in error_data[0]:
+    error_x.append(time[value])
+actual_x=[]
+for value in actual_data[0]:
+    actual_x.append(time[value])
+#print(error_x)
+#print(actual_x)
+
+
+
+
+plt.subplot(2, 1, 1)
+plt.plot(time,error)
+plt.scatter(error_x,error_y,color='red')
+plt.title('Error Signal Peaks')
+
+plt.subplot(2, 1, 2)
+plt.plot(time,actual_fecg)
+plt.scatter(actual_x,actual_y,color='red')
+plt.title('Actual fecg Peaks')
+
+plt.tight_layout()
+plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
